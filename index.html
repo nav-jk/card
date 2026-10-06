@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Wallet cards editor</title>
+<style>
+:root{--bg:#f6f5f2;--fg:#1c1c1e;--mut:#6b6b70;--line:#d8d6d0;--card:#fff;--acc:#d97b00;--bad:#c62828}
+@media (prefers-color-scheme:dark){:root{--bg:#161618;--fg:#f2f2f4;--mut:#9a9aa0;--line:#333338;--card:#202023;--acc:#ff9f0a;--bad:#ff6b6b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif;padding:24px 16px 64px}
+main{max-width:720px;margin:0 auto}
+h1{font-size:1.6rem;margin:0 0 4px}
+p.lead{color:var(--mut);margin:0 0 20px}
+.row{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.row .full{grid-column:1/-1}
+label{font-size:.8rem;color:var(--mut);display:block}
+input{width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--fg);font:inherit}
+input:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+input.over{border-color:var(--bad)}
+.meta{font-size:.75rem;color:var(--mut);text-align:right}
+.meta.over{color:var(--bad)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
+button{padding:8px 14px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;cursor:pointer}
+button.primary{background:var(--acc);border-color:var(--acc);color:#000}
+button.del{color:var(--bad);justify-self:start}
+textarea{width:100%;min-height:200px;font:13px/1.4 ui-monospace,monospace;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)}
+#status{min-height:1.4em;font-size:.9rem}
+.err{color:var(--bad)}
+</style>
+</head>
+<body>
+<main>
+<h1>Wallet cards editor</h1>
+<p class="lead">Edit your cards, then download <code>cards.json</code> and commit it to the repo. Nothing leaves this page.</p>
+
+<div class="bar">
+  <button id="add" class="primary">Add card</button>
+  <button id="load">Load cards.json</button>
+  <input type="file" id="file" accept=".json,application/json" hidden>
+</div>
+<div id="list"></div>
+<div id="status" role="status"></div>
+
+<div class="bar">
+  <button id="dl" class="primary">Download cards.json</button>
+  <button id="copy">Copy JSON</button>
+</div>
+<textarea id="out" readonly aria-label="Generated JSON"></textarea>
+</main>
+<script>
+const MAX_CARDS=8, LIM={name:31,sub:39,code:255};
+let cards=[{name:"Gym Pass",sub:"Member 10442",code:"GYM-10442",color:"30D158"}];
+const $=id=>document.getElementById(id);
+
+function problems(){
+  const p=[];
+  if(cards.length>MAX_CARDS)p.push("The watch reads at most "+MAX_CARDS+" cards.");
+  cards.forEach((c,i)=>{
+    if(!c.code.trim())p.push("Card "+(i+1)+" has no code and will be skipped.");
+    for(const k in LIM)if(new TextEncoder().encode(c[k]).length>LIM[k])p.push("Card "+(i+1)+": "+k+" is over "+LIM[k]+" bytes.");
+    if(c.color&&!/^#?[0-9a-fA-F]{6}$/.test(c.color))p.push("Card "+(i+1)+": color must be 6 hex digits.");
+  });
+  const size=new TextEncoder().encode(json()).length;
+  if(size>8000)p.push("JSON is "+size+" bytes; the watch buffer holds about 8000.");
+  return p;
+}
+function json(){
+  return JSON.stringify({cards:cards.map(c=>{const o={name:c.name,sub:c.sub,code:c.code};if(c.color)o.color=c.color.replace("#","");return o;})},null,2);
+}
+function field(i,k,label,full){
+  const len=new TextEncoder().encode(cards[i][k]).length;
+  return `<div class="${full?'full':''}"><label>${label} <span class="meta ${len>LIM[k]?'over':''}">${LIM[k]?len+'/'+LIM[k]:''}</span></label>
+  <input data-i="${i}" data-k="${k}" class="${len>LIM[k]?'over':''}" value="${cards[i][k].replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"></div>`;
+}
+function render(keepFocus){
+  const a=document.activeElement, fi=a&&a.dataset?a.dataset.i:null, fk=a&&a.dataset?a.dataset.k:null, pos=a&&a.selectionStart;
+  $("list").innerHTML=cards.map((c,i)=>`<div class="row">
+    ${field(i,"name","Name")}${field(i,"sub","Subtitle")}${field(i,"code","Code (QR content)",true)}
+    <div><label>Color (hex)</label><input data-i="${i}" data-k="color" value="${c.color||''}" placeholder="FF9F0A"></div>
+    <button class="del" data-del="${i}">Remove</button></div>`).join("");
+  const p=problems();
+  $("status").innerHTML=p.map(x=>`<div class="err">${x}</div>`).join("");
+  $("out").value=json();
+  $("add").disabled=cards.length>=MAX_CARDS;
+  if(keepFocus&&fi!==null){const el=document.querySelector(`[data-i="${fi}"][data-k="${fk}"]`);if(el){el.focus();el.setSelectionRange(pos,pos);}}
+}
+$("list").addEventListener("input",e=>{const t=e.target;if(t.dataset.k){cards[+t.dataset.i][t.dataset.k]=t.value;render(true);}});
+$("list").addEventListener("click",e=>{const d=e.target.dataset.del;if(d!==undefined){cards.splice(+d,1);render();}});
+$("add").onclick=()=>{cards.push({name:"",sub:"",code:"",color:""});render();};
+$("load").onclick=()=>$("file").click();
+$("file").onchange=async e=>{
+  try{
+    const d=JSON.parse(await e.target.files[0].text());
+    const arr=Array.isArray(d)?d:d.cards;
+    cards=arr.map(c=>({name:c.name||"",sub:c.sub||"",code:c.code||"",color:c.color||""}));
+    render();
+  }catch(err){$("status").innerHTML='<div class="err">Could not read that file as cards JSON.</div>';}
+};
+$("dl").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([json()],{type:"application/json"}));a.download="cards.json";a.click();};
+$("copy").onclick=async()=>{try{await navigator.clipboard.writeText(json());}catch(e){$("out").select();document.execCommand("copy");}};
+render();
+</script>
+</body>
+</html>
